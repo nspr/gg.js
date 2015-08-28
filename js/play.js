@@ -2,7 +2,9 @@ var playState = {
     
 	create: function () {
         game.time.advancedTiming = true;
-   
+        game.renderer.antialias = false;
+        game.time.desiredfps = 30;
+        
         var tempKey = {
             left: Phaser.Keyboard.A,
             right: Phaser.Keyboard.D,
@@ -13,15 +15,20 @@ var playState = {
         
         this.input = new this.PlayerControl(tempKey);
         
-        this.player = this.game.add.sprite(game.world.centerX, game.world.centerY, 'demoman');
+        this.bg = this.game.add.image(0, 0, 'bg');
+        this.bg.smoothed = false;
+        this.bg.width *= 6;
+        this.bg.height *= 6;
+        game.world.setBounds(0, 0, this.bg.width, this.bg.height);
+        
+        this.player = this.game.add.sprite(game.world.centerX/2, game.world.centerY, 'demoman');
         game.physics.arcade.enable(this.player);
         
-        this.bg = this.game.add.image(0, 0, 'bg');
-        
-        this.tempGround = this.game.add.sprite(0, game.world.height - 1, 'ground');
+        this.tempGround = this.game.add.sprite(0, game.world.centerY+87, null);
         game.physics.arcade.enable(this.tempGround);
         this.tempGround.body.immovable = true;
-        this.tempGround.body.setSize(800, 40);
+        this.tempGround.body.setSize(game.world.width, 40);
+        this.tempGround.body.friction = new Phaser.Point(1, 1);
         
         this.player.anchor.setTo(0.5, 0.5);
         this.player.smoothed = false;
@@ -29,9 +36,10 @@ var playState = {
         
         this.player.body.setSize(9, 18, 0, 12);
         this.player.body.collideWorldBounds = true;
-        this.player.body.maxVelocity = new Phaser.Point(500, 500);
+        this.player.body.maxVelocity = new Phaser.Point(450, 450);
         
         game.camera.follow(this.player);
+        game.camera.bounds = null;
         
         this.input = new this.PlayerControl(tempKey);
         this.player.stat = new this.CharacterStat();
@@ -45,39 +53,69 @@ var playState = {
 	},
     
     render: function () {
-        game.debug.text("fps: " + game.time.fps, game.world.width - 80, game.world.height - 16);
+        game.debug.text("fps: " + game.time.fps, 16, 16);
 //        game.debug.text("elapsed: " + game.time.elapsed, 16, 32);
-//        game.debug.text("physicsElapsed: " + game.time.physicsElapsed, 16, 48);
+
+        game.debug.text("physicsElapsed: " + game.time.physicsElapsed, 16, 48);
         
 //        game.debug.cameraInfo(game.camera, 32, 32);
         
 //        game.debug.body(this.player);
 //        game.debug.body(this.tempGround);
 
-//        game.debug.text("velocity.x: " + this.player.body.velocity.x, 432, 64);
+        game.debug.text("velocity.x: " + this.player.body.velocity.x, 432, 64);
 //        game.debug.text("velocity.y: " + this.player.body.velocity.y, 432, 80);
 //        game.debug.text("gravity: " + this.player.body.gravity.y, 432, 80);
 //        game.debug.text("jumpInitialVelocity: " + this.player.stat.jumpInitialVelocity, 432, 96);
 //        game.debug.text("jumpsRemaining: " + this.characterController.jumpsRemaining, 432, 112);
 //        game.debug.text("jumpKeyCleared: " + this.input.jumpKeyCleared, 432, 96);
-//        game.debug.text("acceleration.x: " + this.player.body.acceleration.x, 432, 32);
+        game.debug.text("acceleration.x: " + this.player.body.acceleration.x, 432, 32);
     },
     
     CharacterStat: function () {
+        this.update = function (newStats) {
+            this.VELOCITY_MAX = newStats.VELOCITY_MAX ? newStats.VELOCITY_MAX : 170999;
+            this.ACCELERATION_MAX = newStats.ACCELERATION_MAX ? newStats.ACCELERATION_MAX : 76599;
+            this.FRICTION_MULTIPLIER = newStats.FRICTION_MULTIPLIER ? newStats.FRICTION_MULTIPLIER : 0;
+        }
+        this.convertGG2Parameters = function (runPower, controlFactor, frictionFactor, tickRate) {
+            // The maximum value velocity reaches is when the velocity lost from "body.velocity.x /= frictionFactor"
+            // is equal to the acceleration "runPower * controlFactor * 30fps"
+            // When runPower === 1, this value is 195.5 pixels per second
+            // The maximum velocity actually applied is (195.5 / frictionFactor), or 170 pixels per second
+            var stat = {};
+            stat.FRICTION_MULTIPLIER = (frictionFactor - 1) / frictionFactor * tickRate;
+            stat.ACCELERATION_MAX = runPower * controlFactor * Math.pow(tickRate, 2);
+            stat.VELOCITY_MAX = runPower * controlFactor / (frictionFactor - 1) * tickRate;
+            // Compensate for (velocity loss from friction per frame) by raising VELOCITY_MAX by that amount
+            stat.VELOCITY_MAX += stat.VELOCITY_MAX * stat.FRICTION_MULTIPLIER * game.time.physicsElapsed;
+            return stat;
+        }
+        this.gg2Stats = this.convertGG2Parameters(1, 0.85, 1.15, 30);
+        this.update(this.gg2Stats);
+
         // All values expressed in pixels and seconds unless otherwise noted.
-        this.ACCELERATION_MAX = new Phaser.Point(1000, 1000);
-        this.VELOCITY_MAX = new Phaser.Point(230, 200);
-        this.DRAG = new Phaser.Point(500, 0);
-        this.VELOCITY_TERMINAL = 300; 
-        this.JUMP_HEIGHT = 60;
-        this.JUMP_TIME = 10/11;
+        this.JUMP_HEIGHT = 57;
+        this.JUMP_TIME = 0.915;
         this.GRAVITY = 2 * this.JUMP_HEIGHT / Math.pow(0.5 * this.JUMP_TIME, 2);
         this.JUMP_VELOCITY = this.JUMP_TIME * 0.5 * this.GRAVITY;
-        this.JUMP_MAX = 2;  // Unitless, -1 indicates infinite
+        this.VELOCITY_TERMINAL = 300;
+        this.JUMP_MAX = 1;  // Unitless, -1 indicates infinite
     },
     
-    PlayerControl: function (userMoveKey) {
-        // imma put key mapping stuff here later ig uess
+    PlayerControl: function (userMoveKey) {        
+        this.update = function () {
+            // If opposite keys are held down we don't want to move in either direction. So check that the opposite key isn't down.
+            this.moveLeft = this.key.left.isDown && !this.key.right.isDown;
+            this.moveRight = !this.key.left.isDown && this.key.right.isDown;
+            this.moveUp = this.key.up.isDown && !this.key.down.isDown;
+            this.moveDown = !this.key.up.isDown && this.key.down.isDown;
+            
+            this.moveJump = this.key.jump.isDown && !this.moveJumpPrev;
+            this.moveJumpPrev = this.key.jump.isDown;
+        }
+        
+        // imma put key mapping stuff here later i guess
         
         this.key = {
             left: game.input.keyboard.addKey(userMoveKey.left),
@@ -91,58 +129,50 @@ var playState = {
         for (key in userMoveKey) {
             game.input.keyboard.addKeyCapture(key);
         }
-        
-        this.update = function () {
-            // If opposite keys are held down we don't want to move in either direction. So check that the opposite key isn't down.
-            this.moveLeft = this.key.left.isDown && !this.key.right.isDown;
-            this.moveRight = !this.key.left.isDown && this.key.right.isDown;
-            this.moveUp = this.key.up.isDown && !this.key.down.isDown;
-            this.moveDown = !this.key.up.isDown && this.key.down.isDown;
-            
-            this.moveJump = this.key.jump.isDown && !this.moveJumpPrev;
-            this.moveJumpPrev = this.key.jump.isDown;
-        }
-        
     },
     
     CharacterControl: function (input, body, stat) {
         
         body.gravity.y = stat.GRAVITY;
-        body.drag = stat.DRAG;
-        
         // Give character all available jumps on spawn
         this.jumpsRemaining = stat.JUMP_MAX;
         
-        this.update = function() {
+        this.update = function () {
+            // Why are we applying friction every frame regardless of input?
+            // <wareya> because that puts a soft cap on the speed
+            // Unfortunately that soft cap increases linearly with physics framerate.
+            // So to fix that we calculate a cap on velocity that doesn't change when physics slows down.
+            // Its a soft cap because addUntilMax() doesn't touch acceleration when velocity is over the maximum.
+            body.acceleration.x = -body.velocity.x * stat.FRICTION_MULTIPLIER;
             
-            if(input.moveLeft) {
-                body.acceleration.x = -this.boundedIncrement(stat.VELOCITY_MAX.x, stat.ACCELERATION_MAX.x, -body.velocity.x);
-            } else if (input.moveRight) {
-                body.acceleration.x = this.boundedIncrement(stat.VELOCITY_MAX.x, stat.ACCELERATION_MAX.x, body.velocity.x);
-            } else {
-                body.acceleration.x = 0;
-            }
             
-            if (body.touching.down) {
+            if (input.moveLeft)
+                body.acceleration.x -= this.addUntilMax(-body.velocity.x, stat.ACCELERATION_MAX, stat.VELOCITY_MAX);
+            else if (input.moveRight)
+                body.acceleration.x += this.addUntilMax(body.velocity.x, stat.ACCELERATION_MAX, stat.VELOCITY_MAX);
+            
+            
+            if (body.touching.down)
                 this.jumpsRemaining = stat.JUMP_MAX;
-            } else if (this.jumpsRemaining === stat.JUMP_MAX) {
+            else if (this.jumpsRemaining === stat.JUMP_MAX)
                 this.jumpsRemaining--;  // Remove a jump if character becomes airborne without jumping.
-            }
             
             if (input.moveJump && this.jumpsRemaining != 0){
                 body.velocity.y = -stat.JUMP_VELOCITY;
                 this.jumpsRemaining--;
             }
+            
+            body.gravity.y = this.addUntilMax(body.velocity.y, stat.GRAVITY, stat.VELOCITY_TERMINAL);
         }
         
-        // Adds increment to total until total === bound. Inputs and output are positive numbers.
-        this.boundedIncrement = function(bound, increment, total) {
-            if (bound >= total + increment * game.time.physicsElapsed)
-                return increment;
-            else if (bound > total)
-                return (bound - total) / game.time.physicsElapsed;
+        // Add inc to total, keeping total <= max. Use positive numbers.
+        this.addUntilMax = function (total, inc, max) {
+            if (total > max)
+                return 0;
+            if (total + inc * game.time.physicsElapsed <= max)
+                return inc;
             else
-                return 1e-15;
+                return (max - total) / game.time.physicsElapsed;
         }
     },
 };

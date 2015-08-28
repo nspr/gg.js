@@ -1,5 +1,5 @@
 // Initialize Phaser
-var game = new Phaser.Game(800, 600, Phaser.WEBGL, 'gameDiv');
+var game = new Phaser.Game(800, 600, Phaser.CANVAS, 'gameDiv');
 
 // Our 'global' variable
 game.global = {
